@@ -1,0 +1,106 @@
+---
+layout: page
+title: Install El Capitan to GA-Z77-D3H
+categories: macosx
+tags: macosx GA-Z77-D3H "El Capitan"
+---
+
+<p>
+This article explains how to install El Capitan to GA-Z77-D3H(rev 1.0/F22
+) with GTX-560ti.
+</p>
+
+<div id="outline-container-orgheadline1" class="outline-2">
+<h2 id="orgheadline1"><span class="section-number-2">1</span> Specs</h2>
+<div class="outline-text-2" id="text-1">
+<dl class="org-dl">
+<dt>CPU</dt><dd>i7-3770</dd>
+<dt>Motherboard</dt><dd>GA-Z77-D3H (rev 1.0) F22</dd>
+<dt>Graphics</dt><dd>HD4000(built-in i7-3770) / GTX-560ti</dd>
+</dl>
+</div>
+</div>
+
+<div id="outline-container-orgheadline2" class="outline-2">
+<h2 id="orgheadline2"><span class="section-number-2">2</span> Detach Graphics</h2>
+<div class="outline-text-2" id="text-2">
+<ul class="org-ul">
+<li>Starts with HD4000 first. attach GTX-560ti later</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgheadline3" class="outline-2">
+<h2 id="orgheadline3"><span class="section-number-2">3</span> Create USB</h2>
+<div class="outline-text-2" id="text-3">
+<ol class="org-ol">
+<li>Download <a href="https://code.google.com/p/project-osx86/downloads/detail?name=GA-Z77-DS3H%20pack.zip&amp;can=2">GA-Z77-DS3H pack</a>.</li>
+<li>Follow the instructions until step2 from <a href="http://www.tonymacx86.com/el-capitan-desktop-guides/172672-unibeast-install-os-x-el-capitan-any-supported-intel-based-pc.html">UniBeast: Install OS X El Capitan on Any Supported Intel-based PC</a></li>
+<li>Mount EFI partition by <a href="http://www.tonymacx86.com/downloads.php?do=file&amp;id=280">EFI Mounter v3</a> to put some essential kexts.</li>
+<li>Put <code>FakeSMC.kext</code>, <code>NullCPUPowerManagement.kext</code>, and
+<code>AtherosL1cEthernet.kext</code> into <code>EFI/CLOVER/kexts/10.11</code></li>
+<li>Download <a href="http://www.tonymacx86.com/downloads.php?do=file&amp;id=294">El Capitan Post-Install Tools</a> or just
+<code>Clover_v2.3k_r3320_UEFI.pkg</code> and copy into USB</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-orgheadline4" class="outline-2">
+<h2 id="orgheadline4"><span class="section-number-2">4</span> Install</h2>
+<div class="outline-text-2" id="text-4">
+<ol class="org-ol">
+<li>Boot from USB(Press F12 to boot from your USB. UEFI:USB Name)</li>
+<li>Do step 4 <a href="http://www.tonymacx86.com/el-capitan-desktop-guides/172672-unibeast-install-os-x-el-capitan-any-supported-intel-based-pc.html">UniBeast: Install OS X El Capitan on Any Supported Intel-based PC</a></li>
+<li>Press F12 to boot UEFI:USB Name</li>
+<li>Select El Capitan</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-orgheadline5" class="outline-2">
+<h2 id="orgheadline5"><span class="section-number-2">5</span> Post-install</h2>
+<div class="outline-text-2" id="text-5">
+<ol class="org-ol">
+<li>Install <code>Clover_v2.3k_r3320_UEFI.pkg</code> from your USB to your El
+Capitan Disk</li>
+<li>Mount EFI of El Capitan Disk.</li>
+<li>Copy <code>FakeSMC.kext</code>, <code>NullCPUPowerManagement.kext</code>, and
+<code>AtherosL1cEthernet.kext</code> to EFI/CLOVER/kexts/10.11</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-orgheadline6" class="outline-2">
+<h2 id="orgheadline6"><span class="section-number-2">6</span> Enable GTX-560ti</h2>
+<div class="outline-text-2" id="text-6">
+<ol class="org-ol">
+<li>Attach GTX-560ti</li>
+<li>Press F12 and enter Options</li>
+<li>Graphics -&gt; [+] Inject Nvidia</li>
+<li>Select El capitan</li>
+<li>Download <a href="http://www.tonymacx86.com/downloads.php?do=file&amp;id=276">Clover Configurator</a>.</li>
+<li>Mount El Capitan's EFI partition.</li>
+<li>Double click config.plist in /Volume/EFI/EFI/CLOVER</li>
+<li>Modify config.plist to apply it permanently.</li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-orgheadline7" class="outline-2">
+<h2 id="orgheadline7"><span class="section-number-2">7</span> Insurance</h2>
+<div class="outline-text-2" id="text-7">
+<ul class="org-ul">
+<li>Repeat above steps to get another Mac to recover El Captian in emergency</li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgheadline8" class="outline-2">
+<h2 id="orgheadline8"><span class="section-number-2">8</span> Reference</h2>
+<div class="outline-text-2" id="text-8">
+<ul class="org-ul">
+<li><a href="http://www.tonymacx86.com/el-capitan-desktop-guides/183213-success-ga-z77-d3h-amd-radeon-r7-260x.html">{SUCCESS} GA-Z77-D3H + AMD RADEON R7 260x</a></li>
+<li><a href="http://www.tonymacx86.com/el-capitan-desktop-guides/172672-unibeast-install-os-x-el-capitan-any-supported-intel-based-pc.html">UniBeast: Install OS X El Capitan on Any Supported Intel-based PC</a></li>
+</ul>
+</div>
+</div>

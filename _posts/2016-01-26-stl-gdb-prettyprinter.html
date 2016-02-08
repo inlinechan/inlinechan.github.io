@@ -1,0 +1,68 @@
+---
+layout: page
+title: STL GDB pretty printer
+categories: c++
+tags: c++ gdb STL
+---
+<p>
+STL GDB pretty printer
+</p>
+
+<ol class="org-ol">
+<li><p>
+Checkout printer
+</p>
+<pre class="example">
+$ svn co svn://gcc.gnu.org/svn/gcc/trunk/libstdc++-v3/python
+or 
+$ svn co svn://gcc.gnu.org/svn/gcc/branches/gcc-4_8-branch/libstdc++-v3/python
+</pre></li>
+
+<li><p>
+Add following to your ~/.gdbinit
+</p>
+<pre class="example">
+python
+import sys
+sys.path.insert(0, '/home/hyungchan/gdb_printers/python') # abs path require
+from libstdcxx.v6.printers import register_libstdcxx_printers
+register_libstdcxx_printers (None)
+end
+</pre></li>
+
+<li><p>
+Now just print it
+</p>
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">hello.cpp</span>
+<span style="color: #cb4b16;">#include</span> <span style="color: #2aa198;">&lt;string&gt;</span>
+
+<span style="color: #2aa198;">std</span>::<span style="color: #b58900;">string</span> <span style="color: #268bd2;">str</span> = <span style="color: #2aa198;">"hello world"</span>;
+
+<span style="color: #b58900;">int</span> <span style="color: #268bd2;">main</span> ()
+{
+    <span style="color: #859900;">return</span> 0;
+}
+</pre>
+</div>
+<pre class="example">
+$ g++ --version
+g++ (Ubuntu 4.8.4-2ubuntu1~14.04) 4.8.4
+Copyright (C) 2013 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+$ g++ -g -o hello hello.cpp
+$ gdb hello
+(gdb) b main
+Breakpoint 1 at 0x400881: file hello.cpp, line 7.
+(gdb) r
+Starting program: /home/hyungchan/source/gdb_printer/hello 
+
+Breakpoint 1, main () at hello.cpp:7
+7       return 0;
+(gdb) print str
+$1 = "hello world"
+(gdb)
+</pre></li>
+</ol>
