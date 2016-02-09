@@ -17,3 +17,5 @@ github_username:  inlinechan
 
 # Build settings
 markdown: kramdown
+
+comments: true
