@@ -1,0 +1,59 @@
+#+OPTIONS: ^:nil
+#+BEGIN_EXPORT html
+---
+layout: page
+title: Install El Capitan to GA-Z77-D3H
+categories: macosx
+tags: macosx GA-Z77-D3H "El Capitan"
+---
+#+END_EXPORT
+
+This article explains how to install El Capitan to GA-Z77-D3H(rev 1.0/F22
+) with GTX-560ti.
+
+* Specs
+  - CPU :: i7-3770
+  - Motherboard :: GA-Z77-D3H (rev 1.0) F22
+  - Graphics :: HD4000(built-in i7-3770) / GTX-560ti
+
+* Detach Graphics
+  - Starts with HD4000 first. attach GTX-560ti later
+
+* Create USB
+  1. Download [[https://code.google.com/p/project-osx86/downloads/detail?name=GA-Z77-DS3H%2520pack.zip&can=2][GA-Z77-DS3H pack]].
+  2. Follow the instructions until step2 from [[http://www.tonymacx86.com/el-capitan-desktop-guides/172672-unibeast-install-os-x-el-capitan-any-supported-intel-based-pc.html][UniBeast: Install OS X El Capitan on Any Supported Intel-based PC]]
+  3. Mount EFI partition by [[http://www.tonymacx86.com/downloads.php?do=file&id=280][EFI Mounter v3]] to put some essential kexts.
+  4. Put =FakeSMC.kext=, =NullCPUPowerManagement.kext=, and
+     =AtherosL1cEthernet.kext= into =EFI/CLOVER/kexts/10.11=
+  5. Download [[http://www.tonymacx86.com/downloads.php?do=file&id=294][El Capitan Post-Install Tools]] or just
+     =Clover_v2.3k_r3320_UEFI.pkg= and copy into USB
+
+* Install
+  1. Boot from USB(Press F12 to boot from your USB. UEFI:USB Name)
+  2. Do step 4 [[http://www.tonymacx86.com/el-capitan-desktop-guides/172672-unibeast-install-os-x-el-capitan-any-supported-intel-based-pc.html][UniBeast: Install OS X El Capitan on Any Supported Intel-based PC]]
+  3. Press F12 to boot UEFI:USB Name
+  4. Select El Capitan
+
+* Post-install
+  1. Install =Clover_v2.3k_r3320_UEFI.pkg= from your USB to your El
+     Capitan Disk
+  2. Mount EFI of El Capitan Disk.
+  3. Copy =FakeSMC.kext=, =NullCPUPowerManagement.kext=, and
+     =AtherosL1cEthernet.kext= to EFI/CLOVER/kexts/10.11
+
+* Enable GTX-560ti
+  1. Attach GTX-560ti
+  2. Press F12 and enter Options
+  3. Graphics -> [+] Inject Nvidia
+  4. Select El capitan
+  5. Download [[http://www.tonymacx86.com/downloads.php?do=file&id=276][Clover Configurator]].
+  6. Mount El Capitan's EFI partition.
+  7. Double click config.plist in /Volume/EFI/EFI/CLOVER
+  8. Modify config.plist to apply it permanently.
+
+* Insurance
+  - Repeat above steps to get another Mac to recover El Captian in emergency
+
+* Reference
+  - [[http://www.tonymacx86.com/el-capitan-desktop-guides/183213-success-ga-z77-d3h-amd-radeon-r7-260x.html][{SUCCESS} GA-Z77-D3H + AMD RADEON R7 260x]]
+  - [[http://www.tonymacx86.com/el-capitan-desktop-guides/172672-unibeast-install-os-x-el-capitan-any-supported-intel-based-pc.html][UniBeast: Install OS X El Capitan on Any Supported Intel-based PC]]
