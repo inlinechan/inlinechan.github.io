@@ -1,0 +1,784 @@
+#+TITLE: Chromium's callback<>, bind<> from scratch
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="org-style.css" />
+#+BEGIN_HTML
+---
+layout: page
+title: Chromium's callback<>, bind<> from scratch
+categories: c++ template chromium
+tags: c++ template chromium callback bind
+---
+#+END_HTML
+
+I've been working on chromium source for few years. I want to analyze how
+~Callback<>~ works because it looks like a magic at least to me. 
+
+Let's start with simple function ~void func()~
+
+* Mission 1: Implement Callback for ~void func()~
+
+  #+BEGIN_SRC c++
+    void void_func() {
+    }
+
+    int main(int, char* []) {
+      Callback<void()> cb = Bind(&void_func);
+      cb.Run();
+      return 0;
+    }
+  #+END_SRC
+
+  #+BEGIN_SRC c++
+    template <typename Sig>
+    class Callback;
+
+    template <typename R>
+    class Callback<R()> {
+     public:
+      Callback(R (*functor)()) : functor_(functor) {}
+      R Run() { return functor_(); }
+
+     private:
+      R (*functor_)();
+    };
+
+    template <typename R>
+    Callback<R()> Bind(R (*functor)()) {
+      return Callback<R()>(functor);
+    }
+
+    // ...
+  #+END_SRC
+
+  One thing worth to mention is declaring ~template <typename Sig>class
+  Callback~.  ~Sig~ can be combination of any return type with any number of
+  parameter type. For example, we can use ~Callback<void()>~,
+  ~Callback<void(int)>~, ~Callback<void(Obj::*)(int, double)>~ with only one
+  parameter type.  This trick is used very often for other template code, so we need
+  to understand how to use this trick.
+
+  If we compile this ~Callback<void()> cb = Bind(&void_func);~, In ~Bind~, type
+  deduce ~[R = void]~.
+
+* Mission 2: Support ~void(*)(int)~
+
+  Let's support ~void int_func(int)~.
+
+  #+BEGIN_SRC c++
+    void int_func(int);
+
+    Callback<void(int)> cb2 = Bind(&int_func);
+    cb2.Run(1);
+  #+END_SRC
+
+  The most simple way of supporting this is overloading. We can create another
+  Callback for ~void(*)(int)~.
+
+  #+BEGIN_SRC c++
+    template <typename R, typename P>
+    class Callback<R(P)> {
+     public:
+      Callback(R (*functor)(P)) : functor_(functor) {}
+      R Run(P p) { return functor_(p); }
+
+     private:
+      R (*functor_)(P);
+    };
+
+    template <typename R, typename P>
+    Callback<R(P)> Bind(R (*functor)(P)) {
+      return Callback<R(P)>(functor);
+    }
+  #+END_SRC
+  
+  Both in ~Bind~ and ~Callback~, type deduce ~[R = void, P = int]~.
+
+* Mission 3: Support member method ~Bind(&Obj::void_func, &obj)~
+** Overloading fail
+  Support this.
+  #+BEGIN_SRC c++
+    struct Obj {
+      void void_func() {}
+    };
+
+    Obj obj;
+    Callback<void()> cb3 = Bind(&Obj::void_func, &obj);
+    cb3.Run();
+  #+END_SRC
+
+  Since ~Bind~ binds both its method and instance of ~Obj~ (~Obj*~), we need to keep
+  Obj* as well as its method. Let's call it ~RunnableAdapter~.
+
+  Like we've done so far, let's overcome this by overloading.
+
+  #+BEGIN_SRC c++
+    template <typename R>
+    class Callback<R()> {
+      // ...
+    };
+
+    template <typename R, typename T>
+    class Callback<R()> {
+      // TODO: T cannot be a part of Callback<>'s type
+    };
+
+    template <typename R, typename T>
+    Callback<R()> Bind(R (T::*functor)(), T* t) {
+      return Callback<R()>(functor, t);
+    }
+
+    // Usage:
+    {
+      Callback<void()> cb = Bind(&void_func);
+      cb.Run();
+
+      Obj o;
+      Callback<void()> cb3 = Bind(&Obj::void_func, &o);
+      cb3.Run();
+    }
+  #+END_SRC
+
+  We have problem. Because Binding ~void void_func()~ and ~Obj::void_func~ with ~Obj*~
+  have same type ~Callback<void()>~, there is no way to put ~T~ in Callback's
+  type. So, we need to find a way to fix this.
+
+  In ~Callback<T>~, ~T~ means that actual ~RunType~. For example,
+  ~Obj::void_func( void (Obj::*)() )~ need to be called with its
+  instance(~Obj*~). After combining method and its instance, we'll get its
+  ~RunType~ as ~void()~.
+
+  #+BEGIN_SRC c++
+    struct Obj {
+      void void_func() {}
+    };
+
+    void Run(void (Obj::*functor)(), Obj* obj) {
+      (obj->*functor)(); // RunType: void()
+    }
+
+    int main(int, char* []) {
+      void (Obj::*functor)() = &Obj::void_func;
+      Obj* obj = new Obj;
+      Run(functor, obj);
+
+      return 0;
+    }
+
+  #+END_SRC
+
+  In this example, you maybe observe ~RunType~ (~void()~) of this inside of ~Run~. So, we
+  need to do 2 things
+
+  1. Add indirection between ~Bind~ and ~Callback<>~.
+  2. ~Callback<>~ maybe store instance(~Obj*~) for method.
+
+     Let's introduce ~RunnableAdapter<>~ and ~BindState<>~.
+     - ~RunnableAdapter<>~ :: accepting normal function(~void (*)()~) or
+          method(~void (T::*)()~) and provide ~Run~ method.
+     - ~BindState<>~ :: storing method(~void (Obj::*)()~) with its instance(~Obj*~)
+
+** ~RunnableAdapter<>~, ~BindState<>~ and ~Bind~ overhaul
+   
+   #+BEGIN_SRC c++
+     template <typename Sig>
+     class RunnableAdapter;
+
+     template <typename R, typename T>
+     class RunnableAdapter<R (T::*)()> {
+      public:
+       RunnableAdapter(R (T::*functor)()) : functor_(functor) {}
+
+       R Run(T* t) { return (t->*functor_)(); }
+
+      private:
+       R (T::*functor_)();
+     };
+
+     template <typename Runnable, typename RunType, typename BoundArgsType>
+     struct BindState;
+
+     template <typename Runnable, typename RunType, typename P1>
+     struct BindState<Runnable, RunType, void(P1)> {
+       BindState(Runnable runnable, P1 p1) : runnable_(runnable), p1_(p1) {}
+
+       Runnable runnable_;
+       P1 p1_;
+     };
+
+     template <typename R, typename T>
+     Callback<R()> Bind(R (T::*functor)(), T* t) {
+       return Callback<R()>(new BindState<RunnableAdapter<R (T::*)()>, R(), R(T*)>(
+           RunnableAdapter<R (T::*)()>(functor), t));
+     }
+   #+END_SRC
+
+   ~RunnableAdapter<>~ encapsulates method(possibly normal function later) and
+   ~BindState<>~ accepts ~RunnableAdapter<>~ and its instance, finally
+   ~Callback<>~ accepts ~BindState<>~. Now it's time to implement
+   ~Callback<R()>~.
+
+   #+BEGIN_SRC c++
+     // template <typename R>
+     // class Callback<R()> {
+     //  public:
+     //   Callback(R (*functor)()) : functor_(functor) {}
+     //   R Run() { return functor_(); }
+
+     //  private:
+     //   R (*functor_)();
+     // };
+
+     struct BindStateBase {};
+
+     template <typename Runnable, typename RunType, typename P1>
+     struct BindState<Runnable, RunType, void(P1)> : public BindStateBase {
+       using UnboundType = RunType;
+       BindState(Runnable runnable, P1 p1) : runnable_(runnable), p1_(p1) {}
+
+       Runnable runnable_;
+       P1 p1_;
+     };
+
+     template <typename R>
+     class Callback<R()> {
+      public:
+       template <typename BindState>
+       Callback(BindState* bind_state) : bind_state_(bind_state) {}
+
+       R Run() {
+         // TODO:
+       }
+
+      private:
+       BindStateBase* bind_state_;
+     };
+
+     template <typename R, typename T>
+     Callback<R()> Bind(R (T::*functor)(), T* t) {
+       return Callback<R()>(new BindState<RunnableAdapter<R(T::*)()>, R(), R(T*)>(
+           RunnableAdapter<R (T::*)()>(functor), t));
+     }
+   #+END_SRC
+
+   At first, old ~Callback<R()>~ commented out. ~Callback<>~ now have *Function
+   Template* as its constructor with its param type as ~BindStateBase~. This
+   enables to accept different type of ~BindState<>~. 
+
+   Let's implement ~Callback<>::Run()~ in the next phase.
+
+** ~Invoker<>~ (depends on ~BindState<>~) and ~Invoker<>::Run~ (static method)
+
+   To implement ~R Run()~, it requires another trick. Since we have ~BindState<>~
+   and ~RunnableAdapter<>~, we can call any functor in ~Callback<>~. But,
+   ~Callback<>~ accept different type derived classes of ~BindStateBase~ and it
+   requires different invoking syntax. In other words, invoking BindState
+   depends on BindState. So, let's add ~Invoker<>~ type in ~BindState<>~.
+
+   #+BEGIN_SRC c++
+     template <typename Storage, typename R>
+     struct Invoker<Storage, R()> {
+       static R Run(BindStateBase* bind_state) {
+         Storage* storage = static_cast<Storage*>(bind_state);
+         return storage->runnable_.Run(storage->p1_);
+       }
+     };
+
+     template <typename Runnable, typename RunType, typename P1>
+     struct BindState<Runnable, RunType, void(P1)> : public BindStateBase {
+       using UnboundType = RunType;
+       using InvokerType = Invoker<BindState<Runnable, RunType, void(P1)>, RunType>;
+       BindState(Runnable runnable, P1 p1) : runnable_(runnable), p1_(p1) {}
+
+       Runnable runnable_;
+       P1 p1_;
+     };
+   #+END_SRC
+
+   ~Invoker<>~ has *static* method named ~Run()~ and it depends on
+   ~BindState<>~. ~BindState<>::InvokerType~ will be used to run in
+   ~Callback<>::Run()~.
+
+** ~Callback<>~ constructor *Functor Template*
+
+   #+BEGIN_SRC c++
+     template <typename R>
+     class Callback<R()> {
+      public:
+       template <typename BindState>
+       Callback(BindState* bind_state) : bind_state_(bind_state) {
+         polymorphic_invoke_ = &BindState::InvokerType::Run;
+       }
+
+       R Run() {
+         return polymorphic_invoke_(bind_state_);
+       }
+
+      private:
+       using PolymorphicInvoke = R(*)(BindStateBase*);
+
+       PolymorphicInvoke polymorphic_invoke_;
+       BindStateBase* bind_state_;
+     };
+   #+END_SRC
+
+   Finally we've implemented ~Callback<>::Run()~. Please note that
+   ~polymorphic_invoke_~ depends on ~BindState<>~ and know how to run functor
+   from ~BindState<>~.
+
+   One trivial thing in here is that call function that returns void with return
+   statement. For example, this is valid though it looks weird.
+   #+BEGIN_SRC c++
+     void return_void() {}
+     void func_void() { return return_void(); }
+   #+END_SRC
+
+   Let's test whether ~Obj::void_func()~ called.
+
+   #+BEGIN_SRC c++
+     #include <cassert>
+
+     struct Obj {
+       Obj() : called(false) {}
+       ~Obj() { assert(called); }
+       void void_func() { called = true; }
+       bool called;
+     };
+
+     int main(int, char* []) {
+       Obj o;
+       Callback<void()> cb3 = Bind(&Obj::void_func, &o);
+       cb3.Run();
+     }
+   #+END_SRC
+
+   During stack unwind at the end of ~main()~, ~Obj::Obj() checks ~Obj::called~ is ~true~. No
+   assertion found.
+
+** Whole source code
+
+   #+BEGIN_SRC c++
+     template <typename Sig>
+     class Callback;
+
+     template <typename R, typename P>
+     class Callback<R(P)> {
+      public:
+       Callback(R (*functor)(P)) : functor_(functor) {}
+       R Run(P p) { return functor_(p); }
+
+      private:
+       R (*functor_)(P);
+     };
+
+     // template <typename R>
+     // class Callback<R()> {
+     //  public:
+     //   Callback(R (*functor)()) : functor_(functor) {}
+     //   R Run() { return functor_(); }
+
+     //  private:
+     //   R (*functor_)();
+     // };
+
+     template <typename R, typename P>
+     Callback<R(P)> Bind(R (*functor)(P)) {
+       return Callback<R(P)>(functor);
+     }
+
+     template <typename R>
+     Callback<R()> Bind(R (*functor)()) {
+       return Callback<R()>(functor);
+     }
+
+     template <typename Sig>
+     class RunnableAdapter;
+
+     template <typename R, typename T>
+     class RunnableAdapter<R (T::*)()> {
+      public:
+       RunnableAdapter(R (T::*functor)()) : functor_(functor) {}
+
+       R Run(T* t) { return (t->*functor_)(); }
+
+      private:
+       R (T::*functor_)();
+     };
+
+     template <typename Runnable, typename RunType, typename BoundArgsType>
+     struct BindState;
+
+     struct BindStateBase {};
+
+     template <typename Storage, typename RunType>
+     struct Invoker;
+
+     template <typename Storage, typename R>
+     struct Invoker<Storage, R()> {
+       static R Run(BindStateBase* bind_state) {
+         Storage* storage = static_cast<Storage*>(bind_state);
+         return storage->runnable_.Run(storage->p1_);
+       }
+     };
+
+     template <typename Runnable, typename RunType, typename P1>
+     struct BindState<Runnable, RunType, void(P1)> : public BindStateBase {
+       using UnboundType = RunType;
+       using InvokerType = Invoker<BindState<Runnable, RunType, void(P1)>, RunType>;
+       BindState(Runnable runnable, P1 p1) : runnable_(runnable), p1_(p1) {}
+
+       Runnable runnable_;
+       P1 p1_;
+     };
+
+     template <typename R>
+     class Callback<R()> {
+      public:
+       template <typename BindState>
+       Callback(BindState* bind_state)
+           : bind_state_(bind_state) {
+         polymorphic_invoke_ = &BindState::InvokerType::Run;
+       }
+
+       R Run() { return polymorphic_invoke_(bind_state_); }
+
+      private:
+       using PolymorphicInvoke = R (*)(BindStateBase*);
+
+       PolymorphicInvoke polymorphic_invoke_;
+       BindStateBase* bind_state_;
+     };
+
+     template <typename R, typename T>
+     Callback<R()> Bind(R (T::*functor)(), T* t) {
+       return Callback<
+           typename BindState<RunnableAdapter<R (T::*)()>, R(), R(T*)>::UnboundType>(
+           new BindState<RunnableAdapter<R (T::*)()>, R(), R(T*)>(
+               RunnableAdapter<R (T::*)()>(functor), t));
+     }
+
+     void void_func() {
+     }
+     void int_func(int) {
+     }
+
+     #include <cassert>
+
+     struct Obj {
+       Obj() : called(false) {}
+       ~Obj() { assert(called); }
+       void void_func() { called = true; }
+       bool called;
+     };
+
+     int main(int, char* []) {
+       // Callback<void()> cb = Bind(&void_func);
+       // cb.Run();
+
+       // Callback<void(int)> cb2 = Bind(&int_func);
+       // cb2.Run(1);
+
+       Obj o;
+       Callback<void()> cb3 = Bind(&Obj::void_func, &o);
+       cb3.Run();
+
+       return 0;
+     }
+   #+END_SRC
+
+* Mission 4: Bring back void(*)()
+
+  It was commented out while completing mission 3. So, it's time to bring it
+  back.
+
+  Add ~RunnableAdapter<R(*)()>~, ~Invoker<>~, ~BindState<,,void()>~ and
+  ~Bind(R(*)())~ to support ~void(*)()~. But, we have problem in ~Invoker<>~,
+  they have same signature, so we have 2 options to fix this.
+
+  #+BEGIN_SRC c++
+    template <typename Storage, typename R>
+    struct Invoker<Storage, R()> {
+      // ...
+    }
+  #+END_SRC
+
+  1. Replace ~typename Storage~ with ~BindState<,,>~, ~BindState<>~ for each
+     type are definitely different, so it fix this problem, but very long
+     verbose typename is not readable.
+  2. Introduce integer type representing number of bound types. I think this is
+     also good to implement currying(See callback.h) in the future.
+
+  #+BEGIN_SRC diff
+    +template <typename R>
+    +class RunnableAdapter<R(*)()> {
+    + public:
+    +  RunnableAdapter(R(*functor)()) : functor_(functor){}
+    +
+    +  R Run() {
+    +    return (*functor_)();
+    +  }
+    +
+    + private:
+    +  R (*functor_)();
+    +};
+
+    -template <typename Storage, typename RunType>
+    +template <int NumBound, typename Storage, typename RunType>
+     struct Invoker;
+
+     template <typename Storage, typename R>
+    -struct Invoker<Storage, R()> {
+    +struct Invoker<1, Storage, R()> {
+       static R Run(BindStateBase* bind_state) {
+         Storage* storage = static_cast<Storage*>(bind_state);
+         return storage->runnable_.Run(storage->p1_);
+       }
+     };
+
+    +template <typename Storage, typename R>
+    +struct Invoker<0, Storage, R()> {
+    +  static R Run(BindStateBase* bind_state) {
+    +    Storage* storage = static_cast<Storage*>(bind_state);
+    +    return storage->runnable_.Run();
+    +  }
+    +};
+
+     template <typename Runnable, typename RunType, typename P1>
+     struct BindState<Runnable, RunType, void(P1)> : public BindStateBase {
+       using UnboundType = RunType;
+    -  using InvokerType = Invoker<BindState<Runnable, RunType, void(P1)>, RunType>;
+    +  using InvokerType = Invoker<1, BindState<Runnable, RunType, void(P1)>, RunType>;
+       BindState(Runnable runnable, P1 p1) : runnable_(runnable), p1_(p1) {}
+
+       Runnable runnable_;
+       P1 p1_;
+     };
+
+    +template <typename Runnable, typename RunType>
+    +struct BindState<Runnable, RunType, void()> : public BindStateBase {
+    +  using UnboundType = RunType;
+    +  using InvokerType = Invoker<0, BindState<Runnable, RunType, void()>, RunType>;
+    +  BindState(Runnable runnable) : runnable_(runnable) {}
+    +
+    +  Runnable runnable_;
+    +};
+
+    +template <typename R>
+    +Callback<R()> Bind(R (*functor)()) {
+    +  return Callback<
+    +      typename BindState<RunnableAdapter<R (*)()>, R(), R()>::UnboundType>(
+    +      new BindState<RunnableAdapter<R (*)()>, R(), R()>(
+    +          RunnableAdapter<R (*)()>(functor)));
+    +}
+    +
+
+     int main(int, char* []) {
+    -  // Callback<void()> cb = Bind(&void_func);
+    -  // cb.Run();
+    +  Callback<void()> cb = Bind(&void_func);
+    +  cb.Run();
+
+  #+END_SRC
+
+  This is very easy and straightforward.
+
+* Mission 5: Bring back void(*)(int)
+
+  There is nothing special but just fill the blank.
+
+  #+BEGIN_SRC diff
+     template <typename Sig>
+     class Callback;
+ 
+    -template <typename R, typename P>
+    -class Callback<R(P)> {
+    - public:
+    -  Callback(R (*functor)(P)) : functor_(functor) {}
+    -  R Run(P p) { return functor_(p); }
+    -
+    - private:
+    -  R (*functor_)(P);
+    -};
+    -
+    -template <typename R, typename P>
+    -Callback<R(P)> Bind(R (*functor)(P)) {
+    -  return Callback<R(P)>(functor);
+    -}
+    -
+     template <typename Sig>
+     class RunnableAdapter;
+ 
+    @@ -33,6 +18,19 @@ class RunnableAdapter<R(*)()> {
+       R (*functor_)();
+     };
+ 
+    +template <typename R, typename P>
+    +class RunnableAdapter<R(*)(P)> {
+    + public:
+    +  RunnableAdapter(R(*functor)(P)) : functor_(functor){}
+    +
+    +  R Run(P p) {
+    +    return (*functor_)(p);
+    +  }
+    +
+    + private:
+    +  R (*functor_)(P);
+    +};
+    +
+     template <typename R, typename T>
+     class RunnableAdapter<R(T::*)()> {
+      public:
+    @@ -70,6 +68,14 @@ struct Invoker<0, Storage, R()> {
+       }
+     };
+ 
+    +template <typename Storage, typename R, typename P>
+    +struct Invoker<0, Storage, R(P)> {
+    +  static R Run(BindStateBase* bind_state, P p) {
+    +    Storage* storage = static_cast<Storage*>(bind_state);
+    +    return storage->runnable_.Run(p);
+    +  }
+    +};
+    +
+     template <typename Runnable, typename RunType, typename P1>
+     struct BindState<Runnable, RunType, void(P1)> : public BindStateBase {
+       using UnboundType = RunType;
+    @@ -108,6 +114,25 @@ class Callback<R()> {
+       BindStateBase* bind_state_;
+     };
+ 
+    +template <typename R, typename P>
+    +class Callback<R(P)> {
+    + public:
+    +  template <typename BindState>
+    +  Callback(BindState* bind_state) : bind_state_(bind_state) {
+    +    polymorphic_invoke_ = &BindState::InvokerType::Run;
+    +  }
+    +
+    +  R Run(P p) {
+    +    return polymorphic_invoke_(bind_state_, p);
+    +  }
+    +
+    + private:
+    +  using PolymorphicInvoke = R(*)(BindStateBase*, P);
+    +
+    +  PolymorphicInvoke polymorphic_invoke_;
+    +  BindStateBase* bind_state_;
+    +};
+    +
+     template <typename R>
+     Callback<R()> Bind(R (*functor)()) {
+       return Callback<
+    @@ -116,6 +141,14 @@ Callback<R()> Bind(R (*functor)()) {
+               RunnableAdapter<R (*)()>(functor)));
+     }
+ 
+    +template <typename R, typename P>
+    +Callback<R(P)> Bind(R (*functor)(P)) {
+    +  return Callback<
+    +      typename BindState<RunnableAdapter<R (*)(P)>, R(P), R()>::UnboundType>(
+    +      new BindState<RunnableAdapter<R (*)(P)>, R(P), R()>(
+    +          RunnableAdapter<R (*)(P)>(functor)));
+    +}
+    +
+     template <typename R, typename T>
+     Callback<R()> Bind(R (T::*functor)(), T* t) {
+       return Callback<
+    @@ -142,8 +175,8 @@ int main(int, char* []) {
+       Callback<void()> cb = Bind(&void_func);
+       cb.Run();
+ 
+    -  // Callback<void(int)> cb2 = Bind(&int_func);
+    -  // cb2.Run(1);
+    +  Callback<void(int)> cb2 = Bind(&int_func);
+    +  cb2.Run(1);
+ 
+       Obj o;
+       Callback<void()> cb3 = Bind(&Obj::void_func, &o);
+  #+END_SRC
+
+* Mission 6: Support member method ~Bind(&Foo::int_func, &foo)~
+
+  I know you feel tired, but I have to support member method accepting ~int~.
+
+  #+BEGIN_SRC c++
+    struct Foo {
+      void int_func(int) {}
+    };
+
+    Foo foo;
+    Callback<void(int)> cb4 = Bind(&Foo::int_func, &foo);
+    cb4.Run(1);
+  #+END_SRC
+
+  As you may expect, it's very easy.
+
+  #+BEGIN_SRC diff
+    +template <typename R, typename T, typename P>
+    +class RunnableAdapter<R(T::*)(P)> {
+    + public:
+    +  RunnableAdapter(R(T::*functor)(P)) : functor_(functor){}
+    +
+    +  R Run(T* t, P p) {
+    +    return (t->*functor_)(p);
+    +  }
+    +
+    + private:
+    +  R (T::*functor_)(P);
+    +};
+    +
+     template <typename Runnable, typename RunType, typename BoundArgsType>
+     struct BindState;
+ 
+    @@ -60,6 +73,14 @@ struct Invoker<1, Storage, R()> {
+       }
+     };
+ 
+    +template <typename Storage, typename R, typename P2>
+    +struct Invoker<1, Storage, R(P2)> {
+    +  static R Run(BindStateBase* bind_state, P2 p2) {
+    +    Storage* storage = static_cast<Storage*>(bind_state);
+    +    return storage->runnable_.Run(storage->p1_, p2);
+    +  }
+    +};
+    +
+     template <typename Storage, typename R>
+     struct Invoker<0, Storage, R()> {
+       static R Run(BindStateBase* bind_state) {
+    @@ -157,6 +178,14 @@ Callback<R()> Bind(R (T::*functor)(), T* t) {
+               RunnableAdapter<R (T::*)()>(functor), t));
+     }
+ 
+    +template <typename R, typename T, typename P>
+    +Callback<R(P)> Bind(R (T::*functor)(P), T* t) {
+    +  return Callback<
+    +      typename BindState<RunnableAdapter<R (T::*)(P)>, R(P), R(T*)>::UnboundType>(
+    +      new BindState<RunnableAdapter<R (T::*)(P)>, R(P), R(T*)>(
+    +          RunnableAdapter<R (T::*)(P)>(functor), t));
+    +}
+    +
+     bool called;
+ 
+     void void_func() {
+    @@ -175,6 +204,13 @@ struct Obj {
+       bool called;
+     };
+ 
+    +struct Foo {
+    +  Foo() : called(false) {}
+    +  ~Foo() { assert(called); }
+    +  void int_func(int) { called = true; }
+    +  bool called;
+    +};
+    +
+     int main(int, char* []) {
+       called = false;
+       Callback<void()> cb = Bind(&void_func);
+    @@ -190,5 +226,8 @@ int main(int, char* []) {
+       Callback<void()> cb3 = Bind(&Obj::void_func, &o);
+       cb3.Run();
+ 
+    +  Foo foo;
+    +  Callback<void(int)> cb4 = Bind(&Foo::int_func, &foo);
+    +  cb4.Run(1);
+       return 0;
+     }
+  #+END_SRC

@@ -1,0 +1,916 @@
+---
+layout: page
+title: Chromium's callback<>, bind<> from scratch
+categories: c++ template chromium
+tags: c++ template chromium callback bind
+---
+
+<p>
+I've been working on chromium source for few years. I want to analyze how
+<code>Callback&lt;&gt;</code> works because it looks like a magic at least to me. 
+</p>
+
+<p>
+Let's start with simple function <code>void func()</code>
+</p>
+
+<div id="outline-container-sec-1" class="outline-2">
+<h2 id="sec-1"><span class="section-number-2">1</span> Mission 1: Implement Callback for <code>void func()</code></h2>
+<div class="outline-text-2" id="text-1">
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #b58900;">void</span> <span style="color: #268bd2;">void_func</span>() {
+}
+
+<span style="color: #b58900;">int</span> <span style="color: #268bd2;">main</span>(<span style="color: #b58900;">int</span>, <span style="color: #b58900;">char</span>* []) {
+  <span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>()&gt; <span style="color: #268bd2;">cb</span> = Bind(&amp;void_func);
+  cb.Run();
+  <span style="color: #859900;">return</span> 0;
+}
+</pre>
+</div>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Sig</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>;
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt; {
+ <span style="color: #859900;">public</span>:
+  Callback(<span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor</span>)()) : functor_(functor) {}
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>() { <span style="color: #859900;">return</span> functor_(); }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor_</span>)();
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R()&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor</span>)()) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt;(functor);
+}
+
+<span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">...</span>
+</pre>
+</div>
+
+<p>
+One thing worth to mention is declaring <code>template &lt;typename Sig&gt;class
+  Callback</code>.  <code>Sig</code> can be combination of any return type with any number of
+parameter type. For example, we can use <code>Callback&lt;void()&gt;</code>,
+<code>Callback&lt;void(int)&gt;</code>, <code>Callback&lt;void(Obj::*)(int, double)&gt;</code> with only one
+parameter type.  This trick is used very often for other template code, so we need
+to understand how to use this trick.
+</p>
+
+<p>
+If we compile this <code>Callback&lt;void()&gt; cb = Bind(&amp;void_func);</code>, In <code>Bind</code>, type
+deduce <code>[R = void]</code>.
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-2" class="outline-2">
+<h2 id="sec-2"><span class="section-number-2">2</span> Mission 2: Support <code>void(*)(int)</code></h2>
+<div class="outline-text-2" id="text-2">
+<p>
+Let's support <code>void int_func(int)</code>.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #b58900;">void</span> <span style="color: #268bd2;">int_func</span>(<span style="color: #b58900;">int</span>);
+
+<span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>(<span style="color: #b58900;">int</span>)&gt; <span style="color: #268bd2;">cb2</span> = Bind(&amp;int_func);
+cb2.Run(1);
+</pre>
+</div>
+
+<p>
+The most simple way of supporting this is overloading. We can create another
+Callback for <code>void(*)(int)</code>.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R(<span style="color: #268bd2;">P</span>)&gt; {
+ <span style="color: #859900;">public</span>:
+  Callback(<span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor</span>)(<span style="color: #b58900;">P</span>)) : functor_(functor) {}
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>(<span style="color: #b58900;">P</span> <span style="color: #268bd2;">p</span>) { <span style="color: #859900;">return</span> functor_(p); }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor_</span>)(<span style="color: #b58900;">P</span>);
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R(<span style="color: #268bd2;">P</span>)&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor</span>)(<span style="color: #b58900;">P</span>)) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;R(P)&gt;(functor);
+}
+</pre>
+</div>
+
+<p>
+Both in <code>Bind</code> and <code>Callback</code>, type deduce <code>[R = void, P = int]</code>.
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-3" class="outline-2">
+<h2 id="sec-3"><span class="section-number-2">3</span> Mission 3: Support member method <code>Bind(&amp;Obj::void_func, &amp;obj)</code></h2>
+<div class="outline-text-2" id="text-3">
+</div><div id="outline-container-sec-3-1" class="outline-3">
+<h3 id="sec-3-1"><span class="section-number-3">3.1</span> Overloading fail</h3>
+<div class="outline-text-3" id="text-3-1">
+<p>
+Support this.
+</p>
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">struct</span> <span style="color: #b58900;">Obj</span> {
+  <span style="color: #b58900;">void</span> <span style="color: #268bd2;">void_func</span>() {}
+};
+
+<span style="color: #b58900;">Obj</span> <span style="color: #268bd2;">obj</span>;
+<span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>()&gt; <span style="color: #268bd2;">cb3</span> = Bind(&amp;<span style="color: #2aa198;">Obj</span>::void_func, &amp;obj);
+cb3.Run();
+</pre>
+</div>
+
+<p>
+Since <code>Bind</code> binds both its method and instance of <code>Obj</code> (<code>Obj*</code>), we need to keep
+Obj* as well as its method. Let's call it <code>RunnableAdapter</code>.
+</p>
+
+<p>
+Like we've done so far, let's overcome this by overloading.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt; {
+  <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">...</span>
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">T</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt; {
+  <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">TODO: T cannot be a part of Callback&lt;&gt;'s type</span>
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">T</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R()&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor</span>)(), <span style="color: #b58900;">T</span>* <span style="color: #268bd2;">t</span>) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt;(functor, t);
+}
+
+<span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">Usage:</span>
+{
+  <span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>()&gt; <span style="color: #268bd2;">cb</span> = Bind(&amp;void_func);
+  cb.Run();
+
+  <span style="color: #b58900;">Obj</span> <span style="color: #268bd2;">o</span>;
+  <span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>()&gt; <span style="color: #268bd2;">cb3</span> = Bind(&amp;<span style="color: #2aa198;">Obj</span>::void_func, &amp;o);
+  cb3.Run();
+}
+</pre>
+</div>
+
+<p>
+We have problem. Because Binding <code>void void_func()</code> and <code>Obj::void_func</code> with <code>Obj*</code>
+have same type <code>Callback&lt;void()&gt;</code>, there is no way to put <code>T</code> in Callback's
+type. So, we need to find a way to fix this.
+</p>
+
+<p>
+In <code>Callback&lt;T&gt;</code>, <code>T</code> means that actual <code>RunType</code>. For example,
+<code>Obj::void_func( void (Obj::*)() )</code> need to be called with its
+instance(<code>Obj*</code>). After combining method and its instance, we'll get its
+<code>RunType</code> as <code>void()</code>.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">struct</span> <span style="color: #b58900;">Obj</span> {
+  <span style="color: #b58900;">void</span> <span style="color: #268bd2;">void_func</span>() {}
+};
+
+<span style="color: #b58900;">void</span> <span style="color: #268bd2;">Run</span>(<span style="color: #b58900;">void</span> (<span style="color: #2aa198;">Obj</span>::*<span style="color: #268bd2;">functor</span>)(), <span style="color: #b58900;">Obj</span>* <span style="color: #268bd2;">obj</span>) {
+  (obj-&gt;*functor)(); <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">RunType: void()</span>
+}
+
+<span style="color: #b58900;">int</span> <span style="color: #268bd2;">main</span>(<span style="color: #b58900;">int</span>, <span style="color: #b58900;">char</span>* []) {
+  <span style="color: #b58900;">void</span> (<span style="color: #2aa198;">Obj</span>::*<span style="color: #268bd2;">functor</span>)() = &amp;<span style="color: #2aa198;">Obj</span>::void_func;
+  <span style="color: #b58900;">Obj</span>* <span style="color: #268bd2;">obj</span> = <span style="color: #859900;">new</span> <span style="color: #b58900;">Obj</span>;
+  Run(functor, obj);
+
+  <span style="color: #859900;">return</span> 0;
+}
+</pre>
+</div>
+
+<p>
+In this example, you maybe observe <code>RunType</code> (<code>void()</code>) of this inside of <code>Run</code>. So, we
+need to do 2 things
+</p>
+
+<ol class="org-ol">
+<li>Add indirection between <code>Bind</code> and <code>Callback&lt;&gt;</code>.</li>
+<li><p>
+<code>Callback&lt;&gt;</code> maybe store instance(<code>Obj*</code>) for method.
+</p>
+
+<p>
+Let's introduce <code>RunnableAdapter&lt;&gt;</code> and <code>BindState&lt;&gt;</code>.
+</p>
+<dl class="org-dl">
+<dt><code>RunnableAdapter&lt;&gt;</code></dt><dd>accepting normal function(<code>void (*)()</code>) or
+method(<code>void (T::*)()</code>) and provide <code>Run</code> method.</dd>
+<dt><code>BindState&lt;&gt;</code></dt><dd>storing method(<code>void (Obj::*)()</code>) with its instance(<code>Obj*</code>)</dd>
+</dl></li>
+</ol>
+</div>
+</div>
+
+<div id="outline-container-sec-3-2" class="outline-3">
+<h3 id="sec-3-2"><span class="section-number-3">3.2</span> <code>RunnableAdapter&lt;&gt;</code>, <code>BindState&lt;&gt;</code> and <code>Bind</code> overhaul</h3>
+<div class="outline-text-3" id="text-3-2">
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Sig</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">RunnableAdapter</span>;
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">T</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">RunnableAdapter</span>&lt;<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*)()&gt; {
+ <span style="color: #859900;">public</span>:
+  RunnableAdapter(<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor</span>)()) : functor_(functor) {}
+
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>(<span style="color: #b58900;">T</span>* <span style="color: #268bd2;">t</span>) { <span style="color: #859900;">return</span> (t-&gt;*functor_)(); }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor_</span>)();
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Runnable</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">RunType</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">BoundArgsType</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindState</span>;
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Runnable</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">RunType</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P1</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindState</span>&lt;<span style="color: #b58900;">Runnable</span>, <span style="color: #b58900;">RunType</span>, <span style="color: #b58900;">void</span>(<span style="color: #268bd2;">P1</span>)&gt; {
+  <span style="color: #268bd2;">BindState</span>(<span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable</span>, <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1</span>) : runnable_(runnable), p1_(p1) {}
+
+  <span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable_</span>;
+  <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1_</span>;
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">T</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R()&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor</span>)(), <span style="color: #b58900;">T</span>* <span style="color: #268bd2;">t</span>) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt;(<span style="color: #859900;">new</span> <span style="color: #b58900;">BindState</span>&lt;<span style="color: #b58900;">RunnableAdapter</span>&lt;R (<span style="color: #2aa198;">T</span>::*)()&gt;, R(), R(<span style="color: #b58900;">T</span>*)&gt;(
+      <span style="color: #b58900;">RunnableAdapter</span>&lt;<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*)()&gt;(<span style="color: #268bd2;">functor</span>), t));
+}
+</pre>
+</div>
+
+<p>
+<code>RunnableAdapter&lt;&gt;</code> encapsulates method(possibly normal function later) and
+<code>BindState&lt;&gt;</code> accepts <code>RunnableAdapter&lt;&gt;</code> and its instance, finally
+<code>Callback&lt;&gt;</code> accepts <code>BindState&lt;&gt;</code>. Now it's time to implement
+<code>Callback&lt;R()&gt;</code>.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">template &lt;typename R&gt;</span>
+<span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">class Callback&lt;R()&gt; {</span>
+<span style="color: #93a1a1; font-style: italic;">//  </span><span style="color: #93a1a1; font-style: italic;">public:</span>
+<span style="color: #93a1a1; font-style: italic;">//   </span><span style="color: #93a1a1; font-style: italic;">Callback(R (*functor)()) : functor_(functor) {}</span>
+<span style="color: #93a1a1; font-style: italic;">//   </span><span style="color: #93a1a1; font-style: italic;">R Run() { return functor_(); }</span>
+
+<span style="color: #93a1a1; font-style: italic;">//  </span><span style="color: #93a1a1; font-style: italic;">private:</span>
+<span style="color: #93a1a1; font-style: italic;">//   </span><span style="color: #93a1a1; font-style: italic;">R (*functor_)();</span>
+<span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">};</span>
+
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindStateBase</span> {};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Runnable</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">RunType</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P1</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindState</span>&lt;<span style="color: #b58900;">Runnable</span>, <span style="color: #b58900;">RunType</span>, <span style="color: #b58900;">void</span>(<span style="color: #268bd2;">P1</span>)&gt; : <span style="color: #859900;">public</span> BindStateBase {
+  <span style="color: #859900;">using</span> <span style="color: #b58900;">UnboundType</span> = RunType;
+  <span style="color: #268bd2;">BindState</span>(<span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable</span>, <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1</span>) : runnable_(runnable), p1_(p1) {}
+
+  <span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable_</span>;
+  <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1_</span>;
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt; {
+ <span style="color: #859900;">public</span>:
+  <span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">BindState</span>&gt;
+  <span style="color: #268bd2;">Callback</span>(<span style="color: #b58900;">BindState</span>* <span style="color: #268bd2;">bind_state</span>) : bind_state_(bind_state) {}
+
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>() {
+    <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">TODO:</span>
+  }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #b58900;">BindStateBase</span>* <span style="color: #268bd2;">bind_state_</span>;
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">T</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R()&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor</span>)(), <span style="color: #b58900;">T</span>* <span style="color: #268bd2;">t</span>) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt;(<span style="color: #859900;">new</span> <span style="color: #b58900;">BindState</span>&lt;<span style="color: #b58900;">RunnableAdapter</span>&lt;R(<span style="color: #2aa198;">T</span>::*)()&gt;, R(), R(<span style="color: #b58900;">T</span>*)&gt;(
+      <span style="color: #b58900;">RunnableAdapter</span>&lt;<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*)()&gt;(<span style="color: #268bd2;">functor</span>), t));
+}
+</pre>
+</div>
+
+<p>
+At first, old <code>Callback&lt;R()&gt;</code> commented out. <code>Callback&lt;&gt;</code> now have <b>Function
+Template</b> as its constructor with its param type as <code>BindStateBase</code>. This
+enables to accept different type of <code>BindState&lt;&gt;</code>. 
+</p>
+
+<p>
+Let's implement <code>Callback&lt;&gt;::Run()</code> in the next phase.
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-3-3" class="outline-3">
+<h3 id="sec-3-3"><span class="section-number-3">3.3</span> <code>Invoker&lt;&gt;</code> (depends on <code>BindState&lt;&gt;</code>) and <code>Invoker&lt;&gt;::Run</code> (static method)</h3>
+<div class="outline-text-3" id="text-3-3">
+<p>
+To implement <code>R Run()</code>, it requires another trick. Since we have <code>BindState&lt;&gt;</code>
+and <code>RunnableAdapter&lt;&gt;</code>, we can call any functor in <code>Callback&lt;&gt;</code>. But,
+<code>Callback&lt;&gt;</code> accept different type derived classes of <code>BindStateBase</code> and it
+requires different invoking syntax. In other words, invoking BindState
+depends on BindState. So, let's add <code>Invoker&lt;&gt;</code> type in <code>BindState&lt;&gt;</code>.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Storage</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">Invoker</span>&lt;<span style="color: #b58900;">Storage</span>, R()&gt; {
+  <span style="color: #859900;">static</span> <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>(<span style="color: #b58900;">BindStateBase</span>* <span style="color: #268bd2;">bind_state</span>) {
+    <span style="color: #b58900;">Storage</span>* <span style="color: #268bd2;">storage</span> = <span style="color: #859900;">static_cast</span>&lt;Storage*&gt;(bind_state);
+    <span style="color: #859900;">return</span> storage-&gt;runnable_.Run(storage-&gt;p1_);
+  }
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Runnable</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">RunType</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P1</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindState</span>&lt;<span style="color: #b58900;">Runnable</span>, <span style="color: #b58900;">RunType</span>, <span style="color: #b58900;">void</span>(<span style="color: #268bd2;">P1</span>)&gt; : <span style="color: #859900;">public</span> BindStateBase {
+  <span style="color: #859900;">using</span> <span style="color: #b58900;">UnboundType</span> = RunType;
+  <span style="color: #859900;">using</span> <span style="color: #b58900;">InvokerType</span> = <span style="color: #b58900;">Invoker</span>&lt;<span style="color: #b58900;">BindState</span>&lt;Runnable, RunType, <span style="color: #b58900;">void</span>(P1)&gt;, RunType&gt;;
+  <span style="color: #268bd2;">BindState</span>(<span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable</span>, <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1</span>) : runnable_(runnable), p1_(p1) {}
+
+  <span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable_</span>;
+  <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1_</span>;
+};
+</pre>
+</div>
+
+<p>
+<code>Invoker&lt;&gt;</code> has <b>static</b> method named <code>Run()</code> and it depends on
+<code>BindState&lt;&gt;</code>. <code>BindState&lt;&gt;::InvokerType</code> will be used to run in
+<code>Callback&lt;&gt;::Run()</code>.
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-3-4" class="outline-3">
+<h3 id="sec-3-4"><span class="section-number-3">3.4</span> <code>Callback&lt;&gt;</code> constructor <b>Functor Template</b></h3>
+<div class="outline-text-3" id="text-3-4">
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt; {
+ <span style="color: #859900;">public</span>:
+  <span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">BindState</span>&gt;
+  <span style="color: #268bd2;">Callback</span>(<span style="color: #b58900;">BindState</span>* <span style="color: #268bd2;">bind_state</span>) : bind_state_(bind_state) {
+    polymorphic_invoke_ = &amp;<span style="color: #2aa198;">BindState</span>::<span style="color: #2aa198;">InvokerType</span>::Run;
+  }
+
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>() {
+    <span style="color: #859900;">return</span> polymorphic_invoke_(bind_state_);
+  }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #859900;">using</span> <span style="color: #b58900;">PolymorphicInvoke</span> = R(*)(<span style="color: #b58900;">BindStateBase</span>*);
+
+  <span style="color: #b58900;">PolymorphicInvoke</span> <span style="color: #268bd2;">polymorphic_invoke_</span>;
+  <span style="color: #b58900;">BindStateBase</span>* <span style="color: #268bd2;">bind_state_</span>;
+};
+</pre>
+</div>
+
+<p>
+Finally we've implemented <code>Callback&lt;&gt;::Run()</code>. Please note that
+<code>polymorphic_invoke_</code> depends on <code>BindState&lt;&gt;</code> and know how to run functor
+from <code>BindState&lt;&gt;</code>.
+</p>
+
+<p>
+One trivial thing in here is that call function that returns void with return
+statement. For example, this is valid though it looks weird.
+</p>
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #b58900;">void</span> <span style="color: #268bd2;">return_void</span>() {}
+<span style="color: #b58900;">void</span> <span style="color: #268bd2;">func_void</span>() { <span style="color: #859900;">return</span> return_void(); }
+</pre>
+</div>
+
+<p>
+Let's test whether <code>Obj::void_func()</code> called.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #cb4b16;">#include</span> <span style="color: #2aa198;">&lt;cassert&gt;</span>
+
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">Obj</span> {
+  <span style="color: #268bd2;">Obj</span>() : called(<span style="color: #2aa198;">false</span>) {}
+  ~<span style="color: #268bd2;">Obj</span>() { assert(called); }
+  <span style="color: #b58900;">void</span> <span style="color: #268bd2;">void_func</span>() { called = <span style="color: #2aa198;">true</span>; }
+  <span style="color: #b58900;">bool</span> <span style="color: #268bd2;">called</span>;
+};
+
+<span style="color: #b58900;">int</span> <span style="color: #268bd2;">main</span>(<span style="color: #b58900;">int</span>, <span style="color: #b58900;">char</span>* []) {
+  <span style="color: #b58900;">Obj</span> <span style="color: #268bd2;">o</span>;
+  <span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>()&gt; <span style="color: #268bd2;">cb3</span> = Bind(&amp;<span style="color: #2aa198;">Obj</span>::void_func, &amp;o);
+  cb3.Run();
+}
+</pre>
+</div>
+
+<p>
+During stack unwind at the end of <code>main()</code>, <code>Obj::Obj() checks ~Obj::called</code> is <code>true</code>. No
+assertion found.
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-3-5" class="outline-3">
+<h3 id="sec-3-5"><span class="section-number-3">3.5</span> Whole source code</h3>
+<div class="outline-text-3" id="text-3-5">
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Sig</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>;
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R(<span style="color: #268bd2;">P</span>)&gt; {
+ <span style="color: #859900;">public</span>:
+  Callback(<span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor</span>)(<span style="color: #b58900;">P</span>)) : functor_(functor) {}
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>(<span style="color: #b58900;">P</span> <span style="color: #268bd2;">p</span>) { <span style="color: #859900;">return</span> functor_(p); }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor_</span>)(<span style="color: #b58900;">P</span>);
+};
+
+<span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">template &lt;typename R&gt;</span>
+<span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">class Callback&lt;R()&gt; {</span>
+<span style="color: #93a1a1; font-style: italic;">//  </span><span style="color: #93a1a1; font-style: italic;">public:</span>
+<span style="color: #93a1a1; font-style: italic;">//   </span><span style="color: #93a1a1; font-style: italic;">Callback(R (*functor)()) : functor_(functor) {}</span>
+<span style="color: #93a1a1; font-style: italic;">//   </span><span style="color: #93a1a1; font-style: italic;">R Run() { return functor_(); }</span>
+
+<span style="color: #93a1a1; font-style: italic;">//  </span><span style="color: #93a1a1; font-style: italic;">private:</span>
+<span style="color: #93a1a1; font-style: italic;">//   </span><span style="color: #93a1a1; font-style: italic;">R (*functor_)();</span>
+<span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">};</span>
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R(<span style="color: #268bd2;">P</span>)&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor</span>)(<span style="color: #b58900;">P</span>)) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;R(P)&gt;(functor);
+}
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R()&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (*<span style="color: #268bd2;">functor</span>)()) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt;(functor);
+}
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Sig</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">RunnableAdapter</span>;
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">T</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">RunnableAdapter</span>&lt;<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*)()&gt; {
+ <span style="color: #859900;">public</span>:
+  RunnableAdapter(<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor</span>)()) : functor_(functor) {}
+
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>(<span style="color: #b58900;">T</span>* <span style="color: #268bd2;">t</span>) { <span style="color: #859900;">return</span> (t-&gt;*functor_)(); }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor_</span>)();
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Runnable</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">RunType</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">BoundArgsType</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindState</span>;
+
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindStateBase</span> {};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Storage</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">RunType</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">Invoker</span>;
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Storage</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">Invoker</span>&lt;<span style="color: #b58900;">Storage</span>, R()&gt; {
+  <span style="color: #859900;">static</span> <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>(<span style="color: #b58900;">BindStateBase</span>* <span style="color: #268bd2;">bind_state</span>) {
+    <span style="color: #b58900;">Storage</span>* <span style="color: #268bd2;">storage</span> = <span style="color: #859900;">static_cast</span>&lt;Storage*&gt;(bind_state);
+    <span style="color: #859900;">return</span> storage-&gt;runnable_.Run(storage-&gt;p1_);
+  }
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Runnable</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">RunType</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">P1</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">BindState</span>&lt;<span style="color: #b58900;">Runnable</span>, <span style="color: #b58900;">RunType</span>, <span style="color: #b58900;">void</span>(<span style="color: #268bd2;">P1</span>)&gt; : <span style="color: #859900;">public</span> BindStateBase {
+  <span style="color: #859900;">using</span> <span style="color: #b58900;">UnboundType</span> = RunType;
+  <span style="color: #859900;">using</span> <span style="color: #b58900;">InvokerType</span> = <span style="color: #b58900;">Invoker</span>&lt;<span style="color: #b58900;">BindState</span>&lt;Runnable, RunType, <span style="color: #b58900;">void</span>(P1)&gt;, RunType&gt;;
+  <span style="color: #268bd2;">BindState</span>(<span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable</span>, <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1</span>) : runnable_(runnable), p1_(p1) {}
+
+  <span style="color: #b58900;">Runnable</span> <span style="color: #268bd2;">runnable_</span>;
+  <span style="color: #b58900;">P1</span> <span style="color: #268bd2;">p1_</span>;
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">class</span> <span style="color: #b58900;">Callback</span>&lt;R()&gt; {
+ <span style="color: #859900;">public</span>:
+  <span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">BindState</span>&gt;
+  <span style="color: #268bd2;">Callback</span>(<span style="color: #b58900;">BindState</span>* <span style="color: #268bd2;">bind_state</span>)
+      : bind_state_(bind_state) {
+    polymorphic_invoke_ = &amp;<span style="color: #2aa198;">BindState</span>::<span style="color: #2aa198;">InvokerType</span>::Run;
+  }
+
+  <span style="color: #b58900;">R</span> <span style="color: #268bd2;">Run</span>() { <span style="color: #859900;">return</span> polymorphic_invoke_(bind_state_); }
+
+ <span style="color: #859900;">private</span>:
+  <span style="color: #859900;">using</span> <span style="color: #b58900;">PolymorphicInvoke</span> = R (*)(<span style="color: #b58900;">BindStateBase</span>*);
+
+  <span style="color: #b58900;">PolymorphicInvoke</span> <span style="color: #268bd2;">polymorphic_invoke_</span>;
+  <span style="color: #b58900;">BindStateBase</span>* <span style="color: #268bd2;">bind_state_</span>;
+};
+
+<span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">T</span>&gt;
+<span style="color: #b58900;">Callback</span>&lt;R()&gt; <span style="color: #268bd2;">Bind</span>(<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*<span style="color: #268bd2;">functor</span>)(), <span style="color: #b58900;">T</span>* <span style="color: #268bd2;">t</span>) {
+  <span style="color: #859900;">return</span> <span style="color: #b58900;">Callback</span>&lt;
+      <span style="color: #859900;">typename</span> <span style="color: #2aa198;">BindState</span>&lt;<span style="color: #b58900;">RunnableAdapter</span>&lt;R (<span style="color: #2aa198;">T</span>::*)()&gt;, R(), R(<span style="color: #b58900;">T</span>*)&gt;::<span style="color: #b58900;">UnboundType</span>&gt;(
+      <span style="color: #859900;">new</span> <span style="color: #b58900;">BindState</span>&lt;<span style="color: #b58900;">RunnableAdapter</span>&lt;R (<span style="color: #2aa198;">T</span>::*)()&gt;, R(), R(<span style="color: #b58900;">T</span>*)&gt;(
+          <span style="color: #b58900;">RunnableAdapter</span>&lt;<span style="color: #b58900;">R</span> (<span style="color: #2aa198;">T</span>::*)()&gt;(<span style="color: #268bd2;">functor</span>), t));
+}
+
+<span style="color: #b58900;">void</span> <span style="color: #268bd2;">void_func</span>() {
+}
+<span style="color: #b58900;">void</span> <span style="color: #268bd2;">int_func</span>(<span style="color: #b58900;">int</span>) {
+}
+
+<span style="color: #cb4b16;">#include</span> <span style="color: #2aa198;">&lt;cassert&gt;</span>
+
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">Obj</span> {
+  <span style="color: #268bd2;">Obj</span>() : called(<span style="color: #2aa198;">false</span>) {}
+  ~<span style="color: #268bd2;">Obj</span>() { assert(called); }
+  <span style="color: #b58900;">void</span> <span style="color: #268bd2;">void_func</span>() { called = <span style="color: #2aa198;">true</span>; }
+  <span style="color: #b58900;">bool</span> <span style="color: #268bd2;">called</span>;
+};
+
+<span style="color: #b58900;">int</span> <span style="color: #268bd2;">main</span>(<span style="color: #b58900;">int</span>, <span style="color: #b58900;">char</span>* []) {
+  <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">Callback&lt;void()&gt; cb = Bind(&amp;void_func);</span>
+  <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">cb.Run();</span>
+
+  <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">Callback&lt;void(int)&gt; cb2 = Bind(&amp;int_func);</span>
+  <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">cb2.Run(1);</span>
+
+  <span style="color: #b58900;">Obj</span> <span style="color: #268bd2;">o</span>;
+  <span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>()&gt; <span style="color: #268bd2;">cb3</span> = Bind(&amp;<span style="color: #2aa198;">Obj</span>::void_func, &amp;o);
+  cb3.Run();
+
+  <span style="color: #859900;">return</span> 0;
+}
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-4" class="outline-2">
+<h2 id="sec-4"><span class="section-number-2">4</span> Mission 4: Bring back void(*)()</h2>
+<div class="outline-text-2" id="text-4">
+<p>
+It was commented out while completing mission 3. So, it's time to bring it
+back.
+</p>
+
+<p>
+Add <code>RunnableAdapter&lt;R(*)()&gt;</code>, <code>Invoker&lt;&gt;</code>, <code>BindState&lt;,,void()&gt;</code> and
+<code>Bind(R(*)())</code> to support <code>void(*)()</code>. But, we have problem in <code>Invoker&lt;&gt;</code>,
+they have same signature, so we have 2 options to fix this.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">template</span> &lt;<span style="color: #859900;">typename</span> <span style="color: #b58900;">Storage</span>, <span style="color: #859900;">typename</span> <span style="color: #b58900;">R</span>&gt;
+<span style="color: #859900;">struct</span> <span style="color: #b58900;">Invoker</span>&lt;<span style="color: #b58900;">Storage</span>, R()&gt; {
+  <span style="color: #93a1a1; font-style: italic;">// </span><span style="color: #93a1a1; font-style: italic;">...</span>
+}
+</pre>
+</div>
+
+<ol class="org-ol">
+<li>Replace <code>typename Storage</code> with <code>BindState&lt;,,&gt;</code>, <code>BindState&lt;&gt;</code> for each
+type are definitely different, so it fix this problem, but very long
+verbose typename is not readable.</li>
+<li>Introduce integer type representing number of bound types. I think this is
+also good to implement currying(See callback.h) in the future.</li>
+</ol>
+
+<div class="org-src-container">
+
+<pre class="src src-diff"><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename R&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">class RunnableAdapter&lt;R(*)()&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> public:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  RunnableAdapter(R(*functor)()) : functor_(functor){}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  R Run() {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    return (*functor_)();</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> private:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  R (*functor_)();</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">template &lt;typename Storage, typename RunType&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;int NumBound, typename Storage, typename RunType&gt;</span>
+<span style="color: #93a1a1;"> struct Invoker;</span>
+
+<span style="color: #93a1a1;"> template &lt;typename Storage, typename R&gt;</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">struct Invoker&lt;Storage, R()&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">struct Invoker&lt;1, Storage, R()&gt; {</span>
+<span style="color: #93a1a1;">   static R Run(BindStateBase* bind_state) {</span>
+<span style="color: #93a1a1;">     Storage* storage = static_cast&lt;Storage*&gt;(bind_state);</span>
+<span style="color: #93a1a1;">     return storage-&gt;runnable_.Run(storage-&gt;p1_);</span>
+<span style="color: #93a1a1;">   }</span>
+<span style="color: #93a1a1;"> };</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename Storage, typename R&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">struct Invoker&lt;0, Storage, R()&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  static R Run(BindStateBase* bind_state) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    Storage* storage = static_cast&lt;Storage*&gt;(bind_state);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    return storage-&gt;runnable_.Run();</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+
+<span style="color: #93a1a1;"> template &lt;typename Runnable, typename RunType, typename P1&gt;</span>
+<span style="color: #93a1a1;"> struct BindState&lt;Runnable, RunType, void(P1)&gt; : public BindStateBase {</span>
+<span style="color: #93a1a1;">   using UnboundType = RunType;</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  using InvokerType = Invoker&lt;BindState&lt;Runnable, RunType, void(P1)&gt;, RunType&gt;;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  using InvokerType = Invoker&lt;1, BindState&lt;Runnable, RunType, void(P1)&gt;, RunType&gt;;</span>
+<span style="color: #93a1a1;">   BindState(Runnable runnable, P1 p1) : runnable_(runnable), p1_(p1) {}</span>
+
+<span style="color: #93a1a1;">   Runnable runnable_;</span>
+<span style="color: #93a1a1;">   P1 p1_;</span>
+<span style="color: #93a1a1;"> };</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename Runnable, typename RunType&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">struct BindState&lt;Runnable, RunType, void()&gt; : public BindStateBase {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  using UnboundType = RunType;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  using InvokerType = Invoker&lt;0, BindState&lt;Runnable, RunType, void()&gt;, RunType&gt;;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  BindState(Runnable runnable) : runnable_(runnable) {}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  Runnable runnable_;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename R&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">Callback&lt;R()&gt; Bind(R (*functor)()) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  return Callback&lt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">      typename BindState&lt;RunnableAdapter&lt;R (*)()&gt;, R(), R()&gt;::UnboundType&gt;(</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">      new BindState&lt;RunnableAdapter&lt;R (*)()&gt;, R(), R()&gt;(</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">          RunnableAdapter&lt;R (*)()&gt;(functor)));</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+
+<span style="color: #93a1a1;"> int main(int, char* []) {</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  // Callback&lt;void()&gt; cb = Bind(&amp;void_func);</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  // cb.Run();</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  Callback&lt;void()&gt; cb = Bind(&amp;void_func);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  cb.Run();</span>
+</pre>
+</div>
+
+<p>
+This is very easy and straightforward.
+</p>
+</div>
+</div>
+
+<div id="outline-container-sec-5" class="outline-2">
+<h2 id="sec-5"><span class="section-number-2">5</span> Mission 5: Bring back void(*)(int)</h2>
+<div class="outline-text-2" id="text-5">
+<p>
+There is nothing special but just fill the blank.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-diff"><span style="color: #93a1a1;"> template &lt;typename Sig&gt;</span>
+<span style="color: #93a1a1;"> class Callback;</span>
+
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">template &lt;typename R, typename P&gt;</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">class Callback&lt;R(P)&gt; {</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;"> public:</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  Callback(R (*functor)(P)) : functor_(functor) {}</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  R Run(P p) { return functor_(p); }</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;"> private:</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  R (*functor_)(P);</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">};</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">template &lt;typename R, typename P&gt;</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">Callback&lt;R(P)&gt; Bind(R (*functor)(P)) {</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  return Callback&lt;R(P)&gt;(functor);</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">}</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span>
+<span style="color: #93a1a1;"> template &lt;typename Sig&gt;</span>
+<span style="color: #93a1a1;"> class RunnableAdapter;</span>
+
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -33,6 +18,19 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> class RunnableAdapter&lt;R(*)()&gt; {</span>
+<span style="color: #93a1a1;">   R (*functor_)();</span>
+<span style="color: #93a1a1;"> };</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename R, typename P&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">class RunnableAdapter&lt;R(*)(P)&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> public:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  RunnableAdapter(R(*functor)(P)) : functor_(functor){}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  R Run(P p) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    return (*functor_)(p);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> private:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  R (*functor_)(P);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> template &lt;typename R, typename T&gt;</span>
+<span style="color: #93a1a1;"> class RunnableAdapter&lt;R(T::*)()&gt; {</span>
+<span style="color: #93a1a1;">  public:</span>
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -70,6 +68,14 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> struct Invoker&lt;0, Storage, R()&gt; {</span>
+<span style="color: #93a1a1;">   }</span>
+<span style="color: #93a1a1;"> };</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename Storage, typename R, typename P&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">struct Invoker&lt;0, Storage, R(P)&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  static R Run(BindStateBase* bind_state, P p) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    Storage* storage = static_cast&lt;Storage*&gt;(bind_state);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    return storage-&gt;runnable_.Run(p);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> template &lt;typename Runnable, typename RunType, typename P1&gt;</span>
+<span style="color: #93a1a1;"> struct BindState&lt;Runnable, RunType, void(P1)&gt; : public BindStateBase {</span>
+<span style="color: #93a1a1;">   using UnboundType = RunType;</span>
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -108,6 +114,25 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> class Callback&lt;R()&gt; {</span>
+<span style="color: #93a1a1;">   BindStateBase* bind_state_;</span>
+<span style="color: #93a1a1;"> };</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename R, typename P&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">class Callback&lt;R(P)&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> public:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  template &lt;typename BindState&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  Callback(BindState* bind_state) : bind_state_(bind_state) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    polymorphic_invoke_ = &amp;BindState::InvokerType::Run;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  R Run(P p) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    return polymorphic_invoke_(bind_state_, p);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> private:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  using PolymorphicInvoke = R(*)(BindStateBase*, P);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  PolymorphicInvoke polymorphic_invoke_;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  BindStateBase* bind_state_;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> template &lt;typename R&gt;</span>
+<span style="color: #93a1a1;"> Callback&lt;R()&gt; Bind(R (*functor)()) {</span>
+<span style="color: #93a1a1;">   return Callback&lt;</span>
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -116,6 +141,14 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> Callback&lt;R()&gt; Bind(R (*functor)()) {</span>
+<span style="color: #93a1a1;">           RunnableAdapter&lt;R (*)()&gt;(functor)));</span>
+<span style="color: #93a1a1;"> }</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename R, typename P&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">Callback&lt;R(P)&gt; Bind(R (*functor)(P)) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  return Callback&lt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">      typename BindState&lt;RunnableAdapter&lt;R (*)(P)&gt;, R(P), R()&gt;::UnboundType&gt;(</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">      new BindState&lt;RunnableAdapter&lt;R (*)(P)&gt;, R(P), R()&gt;(</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">          RunnableAdapter&lt;R (*)(P)&gt;(functor)));</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> template &lt;typename R, typename T&gt;</span>
+<span style="color: #93a1a1;"> Callback&lt;R()&gt; Bind(R (T::*functor)(), T* t) {</span>
+<span style="color: #93a1a1;">   return Callback&lt;</span>
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -142,8 +175,8 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> int main(int, char* []) {</span>
+<span style="color: #93a1a1;">   Callback&lt;void()&gt; cb = Bind(&amp;void_func);</span>
+<span style="color: #93a1a1;">   cb.Run();</span>
+
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  // Callback&lt;void(int)&gt; cb2 = Bind(&amp;int_func);</span>
+<span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">-</span><span style="color: #dc322f; background-color: #eee8d5; font-weight: bold;">  // cb2.Run(1);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  Callback&lt;void(int)&gt; cb2 = Bind(&amp;int_func);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  cb2.Run(1);</span>
+
+<span style="color: #93a1a1;">   Obj o;</span>
+<span style="color: #93a1a1;">   Callback&lt;void()&gt; cb3 = Bind(&amp;Obj::void_func, &amp;o);</span>
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-6" class="outline-2">
+<h2 id="sec-6"><span class="section-number-2">6</span> Mission 6: Support member method <code>Bind(&amp;Foo::int_func, &amp;foo)</code></h2>
+<div class="outline-text-2" id="text-6">
+<p>
+I know you feel tired, but I have to support member method accepting <code>int</code>.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++"><span style="color: #859900;">struct</span> <span style="color: #b58900;">Foo</span> {
+  <span style="color: #b58900;">void</span> <span style="color: #268bd2;">int_func</span>(<span style="color: #b58900;">int</span>) {}
+};
+
+<span style="color: #b58900;">Foo</span> <span style="color: #268bd2;">foo</span>;
+<span style="color: #b58900;">Callback</span>&lt;<span style="color: #b58900;">void</span>(<span style="color: #b58900;">int</span>)&gt; <span style="color: #268bd2;">cb4</span> = Bind(&amp;<span style="color: #2aa198;">Foo</span>::int_func, &amp;foo);
+cb4.Run(1);
+</pre>
+</div>
+
+<p>
+As you may expect, it's very easy.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-diff"><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename R, typename T, typename P&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">class RunnableAdapter&lt;R(T::*)(P)&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> public:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  RunnableAdapter(R(T::*functor)(P)) : functor_(functor){}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  R Run(T* t, P p) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    return (t-&gt;*functor_)(p);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;"> private:</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  R (T::*functor_)(P);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> template &lt;typename Runnable, typename RunType, typename BoundArgsType&gt;</span>
+<span style="color: #93a1a1;"> struct BindState;</span>
+
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -60,6 +73,14 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> struct Invoker&lt;1, Storage, R()&gt; {</span>
+<span style="color: #93a1a1;">   }</span>
+<span style="color: #93a1a1;"> };</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename Storage, typename R, typename P2&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">struct Invoker&lt;1, Storage, R(P2)&gt; {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  static R Run(BindStateBase* bind_state, P2 p2) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    Storage* storage = static_cast&lt;Storage*&gt;(bind_state);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">    return storage-&gt;runnable_.Run(storage-&gt;p1_, p2);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> template &lt;typename Storage, typename R&gt;</span>
+<span style="color: #93a1a1;"> struct Invoker&lt;0, Storage, R()&gt; {</span>
+<span style="color: #93a1a1;">   static R Run(BindStateBase* bind_state) {</span>
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -157,6 +178,14 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> Callback&lt;R()&gt; Bind(R (T::*functor)(), T* t) {</span>
+<span style="color: #93a1a1;">           RunnableAdapter&lt;R (T::*)()&gt;(functor), t));</span>
+<span style="color: #93a1a1;"> }</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">template &lt;typename R, typename T, typename P&gt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">Callback&lt;R(P)&gt; Bind(R (T::*functor)(P), T* t) {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  return Callback&lt;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">      typename BindState&lt;RunnableAdapter&lt;R (T::*)(P)&gt;, R(P), R(T*)&gt;::UnboundType&gt;(</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">      new BindState&lt;RunnableAdapter&lt;R (T::*)(P)&gt;, R(P), R(T*)&gt;(</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">          RunnableAdapter&lt;R (T::*)(P)&gt;(functor), t));</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> bool called;</span>
+
+<span style="color: #93a1a1;"> void void_func() {</span>
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -175,6 +204,13 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> struct Obj {</span>
+<span style="color: #93a1a1;">   bool called;</span>
+<span style="color: #93a1a1;"> };</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">struct Foo {</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  Foo() : called(false) {}</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  ~Foo() { assert(called); }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  void int_func(int) { called = true; }</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  bool called;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">};</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span>
+<span style="color: #93a1a1;"> int main(int, char* []) {</span>
+<span style="color: #93a1a1;">   called = false;</span>
+<span style="color: #93a1a1;">   Callback&lt;void()&gt; cb = Bind(&amp;void_func);</span>
+<span style="color: #586e75; background-color: #fdf6e3;">@@ -190,5 +226,8 @@</span><span style="color: #586e75; background-color: #fdf6e3;"> int main(int, char* []) {</span>
+<span style="color: #93a1a1;">   Callback&lt;void()&gt; cb3 = Bind(&amp;Obj::void_func, &amp;o);</span>
+<span style="color: #93a1a1;">   cb3.Run();</span>
+
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  Foo foo;</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  Callback&lt;void(int)&gt; cb4 = Bind(&amp;Foo::int_func, &amp;foo);</span>
+<span style="color: #859900; background-color: #eee8d5; font-weight: bold;">+</span><span style="color: #859900; background-color: #eee8d5; font-weight: bold;">  cb4.Run(1);</span>
+<span style="color: #93a1a1;">   return 0;</span>
+<span style="color: #93a1a1;"> }</span>
+</pre>
+</div>
+</div>
+</div>
